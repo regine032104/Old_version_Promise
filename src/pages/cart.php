@@ -2,23 +2,34 @@
 require_once('../backend/session_check.php');
 require_once('../backend/connections.php');
 
+// Database wrapper instance
+$db = Database::getInstance();
+$pdo = $db->getConnection();
+
 $isLoggedIn = isLoggedIn();
 $user_name = $_SESSION['user_name'] ?? null;
 $user_email = $_SESSION['user_email'] ?? null;
 
 // If the user clicked the add to cart button on the product page we can check for the form data
 if (isset($_POST['product_id'], $_POST['quantity']) && is_numeric($_POST['product_id']) && is_numeric($_POST['quantity'])) {
-    
+
     $product_id = (int)$_POST['product_id'];
     $quantity = (int)$_POST['quantity'];
-    
-    $stmt = $pdo->prepare('SELECT * FROM products WHERE product_id = ?');
-    $stmt->execute([$_POST['product_id']]);
-    
-    $product = $stmt->fetch(PDO::FETCH_ASSOC);
-    // Check if the product exists (array is not empty)
+
+    $product = $db->fetchOne('SELECT * FROM products WHERE product_id = ?', [$product_id]);
+    // Check if the product exists and the requested quantity is valid
     if ($product && $quantity > 0) {
-        // Product exists in database, now we can create/update the session variable for the cart
+        $available = isset($product['quantity_in_stock']) ? (int)$product['quantity_in_stock'] : 0;
+        $existing = isset($_SESSION['cart'][$product_id]) ? (int)$_SESSION['cart'][$product_id] : 0;
+
+        // If requested (existing + new) quantity exceeds available stock, reject and redirect with error
+        if ($existing + $quantity > $available) {
+            // Redirect back to product detail with an out of stock error
+            header('Location: product-detail.php?id=' . $product_id . '&error=out_of_stock');
+            exit;
+        }
+
+        // Product exists in database and stock is sufficient, now we can create/update the session variable for the cart
         if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
             if (array_key_exists($product_id, $_SESSION['cart'])) {
                 // Product exists in cart so just update the quantity
@@ -33,7 +44,7 @@ if (isset($_POST['product_id'], $_POST['quantity']) && is_numeric($_POST['produc
         }
     }
     // Prevent form resubmission...
-    header('location: cart.php');
+    header('Location: cart.php');
     exit;
 }
 
@@ -45,6 +56,10 @@ if (isset($_GET['remove']) && is_numeric($_GET['remove']) && isset($_SESSION['ca
 
 // Update product quantities in cart if the user clicks the "Update" button on the shopping cart page
 if (isset($_POST['update']) && isset($_SESSION['cart'])) {
+    // Prepare to check stock for all updated items
+    $updateError = false;
+    $errorProductId = null;
+
     // Loop through the post data so we can update the quantities for every product in cart
     foreach ($_POST as $k => $v) {
         if (strpos($k, 'quantity') !== false && is_numeric($v)) {
@@ -52,13 +67,33 @@ if (isset($_POST['update']) && isset($_SESSION['cart'])) {
             $quantity = (int)$v;
             // Always do checks and validation
             if (is_numeric($id) && isset($_SESSION['cart'][$id]) && $quantity > 0) {
-                // Update new quantity
-                $_SESSION['cart'][$id] = $quantity;
+                // Fetch available stock for this product
+                $prod = $db->fetchOne('SELECT quantity_in_stock FROM products WHERE product_id = ?', [$id]);
+                $available = $prod ? (int)$prod['quantity_in_stock'] : 0;
+
+                if ($quantity > $available) {
+                    // If requested exceeds available, set to available if >0, otherwise remove
+                    if ($available > 0) {
+                        $_SESSION['cart'][$id] = $available;
+                    } else {
+                        unset($_SESSION['cart'][$id]);
+                    }
+                    $updateError = true;
+                    $errorProductId = $id;
+                } else {
+                    // Update new quantity
+                    $_SESSION['cart'][$id] = $quantity;
+                }
             }
         }
     }
-    // Prevent form resubmission...
-    header('Location: cart.php');
+
+    // Prevent form resubmission... If there was an update error, include product id
+    if ($updateError) {
+        header('Location: cart.php?error=out_of_stock&product_id=' . $errorProductId);
+    } else {
+        header('Location: cart.php');
+    }
     exit;
 }
 
@@ -77,11 +112,8 @@ if ($products_in_cart) {
     // There are products in the cart so we need to select those products from the database
     // Products in cart array to question mark string array, we need the SQL statement to include IN (?,?,?,...etc)
     $array_to_question_marks = implode(',', array_fill(0, count($products_in_cart), '?'));
-    $stmt = $pdo->prepare('SELECT * FROM products WHERE product_id IN (' . $array_to_question_marks . ')');
     // We only need the array keys, not the values, the keys are the id's of the products
-    $stmt->execute(array_keys($products_in_cart));
-    // Fetch the products from the database and return the result as an Array
-    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $products = $db->fetchAll('SELECT * FROM products WHERE product_id IN (' . $array_to_question_marks . ')', array_keys($products_in_cart));
     // Calculate the subtotal
     foreach ($products as $product) {
         $subtotal += (float)$product['price'] * (int)$products_in_cart[$product['product_id']];
@@ -100,10 +132,15 @@ renderHeader([
 <div class="py-20 sm:py-32 cart content-wrapper">
     <div class="container mx-auto px-4 py-6 sm:px-6">
         <h1 class="font-Tinos text-4xl text-pink-950 mb-8 text-center">Shopping Cart</h1>
-
         <?php if (isset($_GET['error']) && $_GET['error'] == '1'): ?>
         <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
             <p class="text-red-800">There was an error placing your order. Please try again.</p>
+        </div>
+        <?php endif; ?>
+
+        <?php if (isset($_GET['error']) && $_GET['error'] === 'out_of_stock'): ?>
+        <div class="mb-6 rounded-lg border border-orange-200 bg-orange-50 p-4">
+            <p class="text-orange-800">One or more items in your cart exceeded available stock and were adjusted or removed. Please review quantities.</p>
         </div>
         <?php endif; ?>
 
@@ -164,7 +201,7 @@ renderHeader([
                                 </thead>
                                 <tbody>
                                     <?php foreach ($products as $product): ?>
-                                    <tr class="border-t border-pink-100">
+                                    <tr class="border-t border-pink-100" data-product-id="<?=$product['product_id']?>">
                                         <td class="p-4">
                                             <a href="product-detail.php?id=<?=$product['product_id']?>" class="block">
                                                 <img src="../<?=str_replace('src/img/', 'img/', $product['image_path'])?>" width="80" height="80" alt="<?=$product['product_name']?>" loading="lazy" decoding="async" class="rounded-lg object-cover">
@@ -175,13 +212,13 @@ renderHeader([
                                             <br>
                                             <small class="text-pink-600"><?=$product['material']?></small>
                                             <br>
-                                            <a href="cart.php?remove=<?=$product['product_id']?>" class="text-red-500 hover:text-red-700 text-sm">Remove</a>
+                                            <a href="cart.php?remove=<?=$product['product_id']?>" class="text-red-500 hover:text-red-700 text-sm remove-item" data-product-id="<?=$product['product_id']?>">Remove</a>
                                         </td>
-                                        <td class="p-4 font-semibold text-pink-800"><?=format_price($product['price'])?></td>
+                                        <td class="p-4 font-semibold text-pink-800" data-unit-price="<?=htmlspecialchars($product['price'])?>"><?=format_price($product['price'])?></td>
                                         <td class="p-4">
-                                            <input type="number" name="quantity-<?=$product['product_id']?>" value="<?=$products_in_cart[$product['product_id']]?>" min="1" max="99" placeholder="Quantity" required class="w-20 px-2 py-1 border border-pink-200 rounded text-center">
+                                            <input id="quantity-<?=$product['product_id']?>" data-product-id="<?=$product['product_id']?>" type="number" name="quantity-<?=$product['product_id']?>" value="<?=$products_in_cart[$product['product_id']]?>" min="1" max="99" placeholder="Quantity" required class="w-20 px-2 py-1 border border-pink-200 rounded text-center">
                                         </td>
-                                        <td class="p-4 font-semibold text-pink-800"><?=format_price($product['price'] * $products_in_cart[$product['product_id']])?></td>
+                                        <td class="p-4 font-semibold text-pink-800"><span class="row-total" id="row-total-<?=$product['product_id']?>"><?=format_price($product['price'] * $products_in_cart[$product['product_id']])?></span></td>
                                     </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -196,7 +233,7 @@ renderHeader([
                     </h3>
                     <div class="mb-2 flex justify-between text-pink-700/80">
                         <span>Subtotal</span>
-                        <span><?=format_price($subtotal)?></span>
+                        <span id="cart-subtotal"><?=format_price($subtotal)?></span>
                     </div>
                     <div class="mb-4 flex justify-between text-pink-700/80">
                         <span>Estimated Shipping</span>
@@ -205,7 +242,7 @@ renderHeader([
                     <hr class="my-4 border-t border-pink-100" />
                     <div class="mb-6 flex justify-between text-lg font-semibold text-pink-800">
                         <span>Total</span>
-                        <span><?=format_price($subtotal)?></span>
+                        <span id="cart-total"><?=format_price($subtotal)?></span>
                     </div>
                     <div class="space-y-3">
                         <input type="submit" value="Update Cart" name="update" class="w-full rounded-md bg-pink-200 py-3 font-semibold text-pink-800 hover:bg-pink-300 transition-colors">

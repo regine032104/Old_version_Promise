@@ -1,20 +1,10 @@
 <?php
-$host = 'localhost';
-$db   = 'wedding_shop';
-$user = 'root';
-$pass = '';
-$charset = 'utf8mb4';   
+// Use the Database wrapper for a single shared PDO connection.
+require_once __DIR__ . '/Database.php';
 
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-$options = [
-    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-];
-try {
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (PDOException $e) {
-    die('Connection failed: ' . $e->getMessage());
-}
+// Get the singleton instance and expose the PDO connection as $pdo for
+// backwards compatibility with existing code.
+$pdo = Database::getInstance()->getConnection();
 
 // Function to connect to MySQL using PDO (for compatibility with existing code)
 function pdo_connect_mysql() {

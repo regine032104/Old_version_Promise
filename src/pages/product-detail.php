@@ -28,6 +28,11 @@ renderHeader([
 
 <section class="py-10 sm:py-12">
     <div class="mx-auto max-w-screen-xl px-4">
+        <?php if (isset($_GET['error']) && $_GET['error'] === 'out_of_stock'): ?>
+            <div class="mb-6 rounded-lg border border-orange-200 bg-orange-50 p-4">
+                <p class="text-orange-800">Requested quantity is not available. Please choose a smaller quantity.</p>
+            </div>
+        <?php endif; ?>
         <nav class="mb-6 text-sm text-neutral">
             <ol class="flex items-center gap-2">
                 <li><a href="home.php" class="transition-colors text-slate-700  hover:text-pink-500">Home</a></li>
@@ -53,7 +58,8 @@ renderHeader([
                 </header>
 
                 <?php if ($isLoggedIn): ?>
-                    <form action="cart.php" method="post" class="space-y-6">
+                    <form action="../backend/cart_api.php" method="post" class="space-y-6">
+                        <input type="hidden" name="action" value="add">
                         <div>
                             <label for="quantity" class="mb-2 block text-sm font-medium text-neutral">Quantity</label>
                             <input type="number" name="quantity" id="quantity" value="1" min="1" max="99" required class="w-32 rounded-lg border border-pink-200 px-4 py-3 text-center focus:border-pink-5  00 focus:ring-2 focus:ring-pink-500" />

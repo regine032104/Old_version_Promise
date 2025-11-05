@@ -6,6 +6,7 @@ $isLoggedIn = isLoggedIn();
 // Get user data directly from session for consistency
 $user_name = isset($_SESSION['user_name']) ? $_SESSION['user_name'] : null;
 $user_email = isset($_SESSION['user_email']) ? $_SESSION['user_email'] : null;
+$cart_count = isset($_SESSION['cart']) && is_array($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
 ?>
 
 <!-- NAVBAR -->
@@ -93,8 +94,8 @@ $user_email = isset($_SESSION['user_email']) ? $_SESSION['user_email'] : null;
                 <?php echo htmlspecialchars($user_email); ?>
               </p>
             </div>
-            <a href="../pages/cart.php" class="block px-4 py-3  hover:text-pink-500 hover:bg-light transition-colors">
-              My Cart
+            <a href="../pages/cart.php" class="block px-4 py-3  hover:text-pink-500 hover:bg-light transition-colors flex items-center gap-2">
+              My Cart <span id="nav-cart-count" class="ml-2 inline-flex items-center justify-center rounded-full bg-pink-100 px-2 py-0.5 text-xs font-medium text-pink-800"><?php echo $cart_count; ?></span>
             </a>
             <a href="../pages/orders.php" class="block px-4 py-3  hover:text-pink-500 hover:bg-light transition-colors">
               My Orders

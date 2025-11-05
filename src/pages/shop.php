@@ -95,7 +95,8 @@ include('../components/hero.html');
                 <div class="mt-4 flex items-center justify-between">
                   <div class="font-bold text-pink-700"><?= format_price($product['price']) ?></div>
                   <?php if ($isLoggedIn): ?>
-                    <form action="cart.php" method="post" class="inline">
+                    <form action="../backend/cart_api.php" method="post" class="inline">
+                      <input type="hidden" name="action" value="add">
                       <input type="hidden" name="product_id" value="<?= $product['product_id'] ?>">
                       <input type="hidden" name="quantity" value="1">
                       <button type="submit"
